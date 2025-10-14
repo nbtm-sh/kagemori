@@ -1,0 +1,348 @@
+<html> <head>
+	</head>
+	<body>
+		<div class="dummy">
+		</div>
+		<div class="login-content-container" id="login-form">
+			<div class="login-form-container">
+				<div class="login-form-error" id="login-error-container">
+					<span class="login-form-error-header"><b>Error</b></span>
+					<span class="login-form-error-description" id="login-error-message">Unable to establish connection to <span class="code">z3545907</span>'s userland daemon (<span class="code">/run/user/13545907/kagemori/kagemori.sock</span>). File not found. Is the daemon running with loginctl linger enabled?</span>
+				</div>
+				<input class="login-input" id="input-username" type="text" placeholder="{{ username_placeholder }}"><br>
+				<input class="login-input" id="input-password" type="password" placeholder="{{ password_placeholder }}"><br>
+				<button class="login-button" onclick="login()">Login</button>
+			</div>
+		</div>
+		<div class="status-container" id="login-state">
+			<span class="login-status-currnt" id="login-state-text">Authenticating...</span>
+		</div>
+		<div class="footer">
+			<span class="footer-version">kagemori {{ git_branch }} (git <span class="code">{{ git_hash }}<span>)<span>
+		</div>
+	</body>
+	<script>
+		const GLOBAL_STATE_LOGIN = "LOGIN"
+		const GLOBAL_STATE_AUTHENTICATING = "AUTH"
+		const GLOBAL_STATE_JOB_START_RQ = "JOBSTARTRQ"
+		const GLOBAL_STATE_JOB_CHECK_STATE ="JOBCHECKSTATE"
+		const GLOBAL_STATE_JOB_RESOURCE = "JOBRESOURCE"
+		const GLOBAL_STATE_JOB_CONFIG = "JOBCONFIG"
+		const GLOBAL_STATE_JOB_STARTED = "JOBSTART"
+		const GLOBAL_STATE_JOB_RESUMING = "JOBRESUMING"
+		const GLOBAL_STATE_ERROR = "ERROR"
+		const IDS = {
+			loginForm: "login-form",
+			loginState: "login-state",
+			loginStateText: "login-state-text",
+			errorContainer: "login-error-container",
+			errorMessageDesc: "login-error-message"
+		}
+		const KAGE_COOKIE_NAME = "kageauth"
+		const LANG_DEFAULT = "en-US"
+		const STRINGS = {
+			"en-US": {
+				stateAuthenticating: "Authenticating...",
+				stateCheckingJobState: "Checking for resumable session...",
+				stateJobStartRequested: "Requesting job start...",
+				stateJobResources: "Awaiting resource allocation...",
+				stateJobAwaitConfig: "Awaiting proxy configuration...",
+				stateJobStarted: "Started! Redirecting...",
+				stateJobResuming: "Resuming session...",
+				errorInvalidUsernameOrPassword: "Invalid username or password",
+				errorConnectionFailed: "Failed to connect to the userland daemon socket. Is the daemon running?",
+			}
+		}
+		// LOGIN = Show login prompt
+		// AUTH = Awaiting authentication response
+		var GLOBAL_SATE = GLOBAL_STATE_LOGIN
+		var GLOBAL_SESSION_TOKEN = "";
+		var ERROR_MESSAGE = "";
+
+		async function login() {
+			GLOBAL_STATE = GLOBAL_STATE_AUTHENTICATING;
+			updateLoginState();
+
+			if (!readCookies().kageauth) {
+				var submit_data = {
+					username: document.getElementById("input-username").value,
+					password: document.getElementById("input-password").value
+				}
+				
+				var response = await fetch("/kagemori/mapi/login", {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json; charset=utf8'
+					},
+					body: JSON.stringify(submit_data)
+				})
+
+				jsonResponse = await response.json();
+				if (jsonResponse["error"] != null) {
+					ERROR_MESSAGE = jsonResponse["error"];
+					GLOBAL_STATE = GLOBAL_STATE_ERROR;
+					updateLoginState();
+					console.log(jsonResponse);
+
+					return;	
+				}
+				GLOBAL_SESSION_TOKEN = jsonResponse["session-token"];
+
+				// Update cookies
+				setCookie(KAGE_COOKIE_NAME, GLOBAL_SESSION_TOKEN);
+			} else {
+				GLOBAL_SESSION_TOKEN = readCookies().kageauth;
+			}
+
+			// Update global state
+			GLOBAL_STATE = GLOBAL_STATE_JOB_CHECK_STATE;
+			updateLoginState();
+
+			// Check that there is no job running already
+			var response = await fetch("/uapi/api/state", {
+				method: 'GET',
+			});
+			if (!response.ok) {
+				GLOBAL_STATE = GLOBAL_STATE_LOGIN;
+				setCookie(KAGE_COOKIE_NAME, "", -1000);
+				updateLoginState();
+
+				return;
+
+			}
+			userDaemonResponse = await response.json();
+			console.log(userDaemonResponse);
+			if (userDaemonResponse.state == "RUNNING") {
+				GLOBAL_STATE = GLOBAL_STATE_JOB_RESUMING;
+				updateLoginState();
+
+				// Obtain redirect URL
+				var response = await fetch("/uapi/redirect");
+				userDaemonResponse = await response.json();
+				await new Promise(r => setTimeout(r, 1000));
+				
+				document.location = userDaemonResponse.job_url;
+			}
+			if (userDaemonResponse.state == "STOPPED") {
+				// Start a new job
+				GLOBAL_STATE = GLOBAL_STATE_JOB_START_RQ;
+				updateLoginState();
+
+				var response = fetch("/uapi/api/start");
+				while (true) {
+					// Sleep for 1 second
+					await new Promise(r => setTimeout(r, 1000));
+					var response = await fetch("/uapi/api/state");
+					userDaemonResponse = await response.json();
+					console.log(userDaemonResponse)
+
+					if (userDaemonResponse.state == "QUEUED") {
+						GLOBAL_STATE = GLOBAL_STATE_JOB_RESOURCE;	
+						updateLoginState();
+					}
+					if (userDaemonResponse.state == "STARTING") {
+						GLOBAL_STATE = GLOBAL_STATE_JOB_CONFIG;	
+						updateLoginState();
+					}
+					if (userDaemonResponse.state == "RUNNING") {
+						GLOBAL_STATE = GLOBAL_STATE_JOB_STARTED;
+						updateLoginState();
+						await new Promise(r => setTimeout(r, 700));
+						break;
+					}
+
+				}
+				// Obtain redirect URL
+				var response = await fetch("/uapi/redirect");
+				userDaemonResponse = await response.json();
+
+				document.location = userDaemonResponse.job_url;
+			}
+		}
+
+		function readCookies() {
+			var response = {}
+
+			var cookieTokens = document.cookie.split(';');
+			// Shamelessly borrowed from Mandeep Janjua on StakOverflow
+			// https://stackoverflow.com/questions/14573223/set-cookie-and-get-cookie-with-javascript
+			for (var i = 0; i < cookieTokens.length; i += 1) {
+				var token = cookieTokens[i];
+				// Remove whitespace
+				while (token.charAt(0) == ' ' && token.length > 2) {
+					token = token.substring(1, token.length);
+				}
+
+				token = token.split("=");
+				response[token[0]] = token[1];
+			}
+			return response;
+		}
+
+		function setCookie(cookieKey, cookieValue, cookieDaysExpire = 7) {
+			var expires = "";
+			if (cookieDaysExpire) {
+				var cookieExpireDate = new Date();
+				cookieExpireDate.setTime(cookieExpireDate.getTime() + (cookieDaysExpire*86400000));
+				expires = cookieExpireDate.toUTCString();
+			}
+			
+			document.cookie = cookieKey + "=" + cookieValue + "; SameSite=Lax; expires=" + expires + "; path=/";
+		}
+
+		function hideLoginForm() {
+			document.getElementById(IDS.loginForm).style.display = "none";
+		}
+		
+		function showLoginForm() {
+			document.getElementById(IDS.loginForm).style.display = "flex";
+		}
+
+		function hideLoginState() {
+			document.getElementById(IDS.loginState).style.display = "none";
+		}
+
+		function showLoginState() {
+			document.getElementById(IDS.loginState).style.display = "flex";
+		}
+
+		function hideError() {
+			document.getElementById(IDS.errorContainer).style.display = "none";
+		}
+
+		function showError() {
+			document.getElementById(IDS.errorContainer).style.display = "flex";
+		}
+
+		function updateLoginState() {
+			var stateTextElement = document.getElementById(IDS.loginStateText);
+			var errorMessageElement = document.getElementById(IDS.errorMessageDesc);
+			console.log(GLOBAL_STATE);
+			if (GLOBAL_STATE == GLOBAL_STATE_LOGIN) {
+				hideLoginState();
+				showLoginForm();
+				hideError();
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_AUTHENTICATING) {
+				hideLoginForm();
+				showLoginState();
+				hideError();
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateAuthenticating;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_CHECK_STATE) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateCheckingJobState;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_START_RQ) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateJobStartRequested;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_RESOURCE) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateJobResources;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_CONFIG) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateJobAwaitConfig;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_STARTED) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateJobStarted;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_JOB_RESUMING) {
+				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateJobResuming;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_ERROR) {
+				errorMessageElement.innerHTML = ERROR_MESSAGE;
+				showLoginForm();
+				showError();
+				hideLoginState();
+			}
+		}
+
+		function checkCanLogin() {
+			if (readCookies().kageauth) {
+				login();
+			}
+		}
+
+		window.onload = function () {
+			checkCanLogin();
+		}
+		
+	</script>
+<style>
+body {
+	width: 100%;
+	height: 100%;
+	padding: 0px;
+	margin: 0px;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	background-color: #f3f3f3;
+}
+.login-input {
+	padding: 5px;
+	margin-top: 3px;
+	margin-bottom: 3px;
+	width: 100%;
+	border-radius: 5px;
+	border: 1px solid #afb0b1;
+}
+.login-button {
+	padding: 5px;
+	margin-top: 3px;
+	margin-bottom: 3px;
+	width: 100%;
+	color: #fff;
+	background-color: #2489ff;
+	border: 1px solid #1863b9;
+	border-radius: 5px;
+}
+.login-button:hover {
+	cursor: pointer;
+	background-color: #2f8fff;
+}
+.login-content-container {
+	width: 100%;
+	display: flex;
+	flex-direction: row;
+	justify-content: center;
+}
+.login-form-container {
+	width: 25em;
+}
+.footer-version {
+	font-family: Helvetica;
+	font-size: 11px;
+	color: #787878;
+	margin: 3px;
+}
+.login-form-error {
+	background-color: #ff3673;
+	border: 1px solid #b0203f;
+	color: #651124;
+	font-family: Helvetica;
+	font-size: 14px;
+	display: none;
+	flex-direction: column;
+	padding: 5px;
+	border-radius: 5px;
+}
+.login-form-error-header {
+	margin-bottom: 5px;
+}
+.login-form-error-description {
+	font-size: 12px;
+}
+.code {
+	font-family: monospace;
+}
+.status-container {
+	width: 100%;
+	display: none;
+	flex-direction: flex;
+	justify-content: center;
+}
+.login-status-currnt {
+	font-family: Helvetica;
+	font-size: 24px;
+}
+</style>
+</html>
