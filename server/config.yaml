@@ -1,0 +1,23 @@
+server:
+  user_socket: "/tmp/kagemori-%u/kagemori.sock" # %i for UID, %u for username, %h for home
+  nginx_socket: "/tmp/kagemori-%u/nginx.sock"
+
+web:
+  session_cookie_name: "kageauth"
+
+branding:
+  username_placeholder: "zID"
+  password_placeholder: "zPass"
+
+user:
+  uid:
+    min: 1000
+    max: 2000
+  gid:
+    min: 5000
+    max: 5000
+  group_exclude: # Exclude users with superuser permission
+    - unsw-sa
+    - katana-sa
+
+

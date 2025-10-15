@@ -9,26 +9,95 @@ import time
 import threading
 import datetime
 import psutil
+import pathlib
+import pwd
+import grp
+import logging
 from flask import request, jsonify
 from auth.pam_backend import AuthBackend
 from session.session_manager import Session, SessionManager
+
+logging.basicConfig()
+g_logger = logging.getLogger()
+g_logger.setLevel(logging.DEBUG)
 
 app = flask.Flask(__name__)
 au = AuthBackend()
 sm = SessionManager()
 
-# Load server configuraiton
-config = {}
-with open("./config.yaml", "r") as config_fp:
-    config = yaml.safe_load(config_fp)
-
 def format_path(path):
+    path = path.replace("%h", str(pathlib.Path.home()))
+    path = path.replace("%u", au.username)
+    path = path.replace("%i", str(au.uid))
     path = os.path.expanduser(path) 
 
     return path
 
+# Load server configuraiton
+config = {}
+POSSIBLE_CONFIG_PATHS = [str(os.getenv('KAGE_CONFIG')), format_path('./config.yaml'), format_path('~/.config/kagemori/config.yaml')]
+CONFIG_PATH = None
+for c_path in POSSIBLE_CONFIG_PATHS:
+    if os.path.exists(c_path) and os.path.isfile(c_path):
+        CONFIG_PATH = c_path
+        break
+
+if CONFIG_PATH == None:
+    g_logger.debug("No config file found. Writing example...")
+
+    with open('./config.example.yaml', 'w') as example_fp:
+        example_fp.write("""
+auth_backend:
+  - pam_auth
+
+upstream_proxy:
+  require_signature: false
+  certificate_chain:
+    - /path/to/cert.pem
+
+server:
+  prefix: "~/.config/kagemori"
+  listen:
+    socket: "/tmp/kagemori-%u/kagemori.sock"
+    socket_mask: "0007"
+    socket_group: "kagemori"
+
+app:
+  job_start: "/apps/rstudio/start.sh" # Script to run when a job is started
+  job_config: "~/.config/kagemori/job.json" # Path to file location where job information is expected to be written
+  job_config_env: "KAGE_JOB_CONFIG" # Name of environment variable containing the path to the job config file
+  poll_time: 1 # Time in between checking the job state when waiting for the job to start
+  running_poll_time: 10 # Time between checking the job state once it has successfully started
+  job_start_timeout: 30 # This is the timeout for how long to wait for the job to provide a valid configuration before giving up
+
+unix:
+  listen: "unix:///tmp/michiru/kagemori.sock"
+
+web:
+  session_cookie_name: "kageauth" # Name of cookie that will be used to check the user's authentication (must match that of the master server)
+
+nginx:
+  listen: "/tmp/kagemori-%u/nginx.sock" # Path to NGINX listen socket
+  nginx_config: "~/.config/kagemori/nginx/nginx.conf" # Relative to nginx_prefix
+  nginx_prefix: "~/.config/kagemori/nginx" # NGINX prefix
+  nginx_logs: "~/.config/kagemori/nginx/logs" # Path to NGINX logs
+  nginx_pid: "~/.config/kagemori/nginx/nginx.pid" # Path to NGINX PID
+        """)
+    g_logger.critical("Could not find configuraion file. An example configuraiton has been written to this directory as config.example.yaml")
+    exit(1)
+
+g_logger.debug(f"Loading config file {CONFIG_PATH}")
+
+with open(CONFIG_PATH, "r") as config_fp:
+    try:
+        config = yaml.safe_load(config_fp)
+    except:
+        g_logger.critial(f"Unable to load {CONFIG_PATH}. Is the file corrupt?")
+
 SOCK=format_path(config["server"]["listen"]["socket"])
 APP_LISTEN=f"unix://{SOCK}"
+
+g_logger.debug(f"App will listen on {APP_LISTEN}")
 
 job_state = {
     "job_state": "NONE",
@@ -44,13 +113,32 @@ global_state = {
     "expected_job_id": ""
 }
 
+def update_socket_permissions(server_configuration, socket_path):
+    socket_dir = os.path.dirname(socket_path)
+    group = grp.getgrnam(server_configuration["server"]["listen"]["socket_group"]).gr_gid
+
+    os.chmod(socket_dir, 0o0770)
+    os.chmod(socket_path, 0o0770)
+    os.chown(socket_path, -1, group)
+
+def thread_update_socket_permissions():
+    time.sleep(1)
+    g_logger.debug(f"Updating socket permissions now {SOCK}")
+    update_socket_permissions(config, SOCK)
+
 def write_nginx_config(server_configuration, job_configuration, nginx_fp):
-    config_v4_listen = server_configuration["nginx"]["listen_v4"]
-    config_v6_listen = server_configuration["nginx"]["listen_v6"]
     nginx_listen = format_path(server_configuration["nginx"]["listen"])
     nginx_pid = format_path(server_configuration["nginx"]["nginx_pid"])
+    error_log = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "error.log"))
+    client_body_temp_path = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "tmp/client_body"))
+    proxy_temp_path = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "tmp/proxy"))
+    fastcgi_temp_path = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "tmp/fastcgi"))
+    uwsgi_temp_path = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "tmp/uwsgi"))
+    scgi_temp_path = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "tmp/scgi"))
+    access_log = format_path(os.path.join(server_configuration["nginx"]["nginx_prefix"], "log/access.log"))
     job_node = job_configuration["job_node"]
     output = f"""pid {nginx_pid};
+error_log {error_log};
 
 events {{
 	worker_connections 768;
@@ -61,6 +149,12 @@ http {{
     sendfile on;
     tcp_nopush on;
     types_hash_max_size 2048;
+
+    client_body_temp_path {client_body_temp_path};
+    proxy_temp_path {proxy_temp_path};
+    fastcgi_temp_path {fastcgi_temp_path};
+    uwsgi_temp_path {uwsgi_temp_path};
+    scgi_temp_path {scgi_temp_path};
 
     default_type application/octet-stream;
 
@@ -73,6 +167,8 @@ http {{
     server {{
         listen unix:{nginx_listen};
         server_name _;
+
+        access_log {access_log};
 
         location / {{
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -138,6 +234,7 @@ def queue_app(server_configuration):
 
 def start_nginx(server_configuration, job_configuration):
     # Assume that the job configuration is valid
+    print("Writing NGINX configuration to", format_path(server_configuration["nginx"]["nginx_config"]))
     with open(format_path(server_configuration["nginx"]["nginx_config"]), "w") as nginx_fp:
         write_nginx_config(server_configuration, job_configuration, nginx_fp)
     
@@ -150,9 +247,13 @@ def start_nginx(server_configuration, job_configuration):
 def check_configuration_directories(server_configuration):
     prefix_dir = os.path.isdir(format_path(server_configuration["server"]["prefix"]))
     nginx_dir = os.path.isdir(format_path(server_configuration["nginx"]["nginx_prefix"]))
-    nginx_log_dir = os.path.isdir(format_path(server_configuration["nginx"]["nginx_logs"]))
+    nginx_temp_dir = os.path.isdir(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "tmp/"))
+    nginx_log_dir = os.path.isdir(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "log/"))
+    daemon_socket_dir = os.path.isdir(os.path.dirname(format_path(server_configuration["server"]["listen"]["socket"])))
+    nginx_socket_dir = os.path.isdir(os.path.dirname(format_path(server_configuration["nginx"]["listen"])))
+    # TODO: Check file ownership and permissions
 
-    return all([prefix_dir, nginx_dir, nginx_log_dir])
+    return all([prefix_dir, nginx_dir, nginx_temp_dir, nginx_log_dir, daemon_socket_dir, nginx_socket_dir])
 
 def create_configuration_directories(server_configuration):
     # Create prefix
@@ -163,8 +264,23 @@ def create_configuration_directories(server_configuration):
     if not os.path.exists(format_path(server_configuration["nginx"]["nginx_prefix"])):
         os.makedirs(format_path(server_configuration["nginx"]["nginx_prefix"]))
 
+    if not os.path.exists(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "tmp/")):
+        os.makedirs(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "tmp/"))
+
+    if not os.path.exists(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "log/")):
+        os.makedirs(os.path.join(format_path(server_configuration["nginx"]["nginx_prefix"]), "log/"))
+
     if not os.path.exists(format_path(server_configuration["nginx"]["nginx_logs"])):
         os.makedirs(format_path(server_configuration["nginx"]["nginx_logs"]))
+    
+    if not os.path.exists(os.path.dirname(format_path(server_configuration["server"]["listen"]["socket"]))):
+        os.makedirs(os.path.dirname(format_path(server_configuration["server"]["listen"]["socket"])))
+
+    if not os.path.exists(os.path.dirname(format_path(server_configuration["nginx"]["listen"]))):
+        os.makedirs(os.path.dirname(format_path(server_configuration["nginx"]["listen"])))
+
+    os.chmod(os.path.dirname(format_path(server_configuration["server"]["listen"]["socket"])), 0o0770)
+    os.chmod(os.path.dirname(format_path(server_configuration["nginx"]["listen"])), 0o0770)
 
 def update_job_configuration(server_configuration):
     global job_state 
@@ -382,7 +498,14 @@ def state():
     return jsonify(global_state)
 
 if __name__ == "__main__":
+    if not check_configuration_directories(config):
+        create_configuration_directories(config)
+
     if nginx_is_running(config):
         nginx_stop(config)
 
+    t_update_permissions = threading.Thread(target=thread_update_socket_permissions)
+    t_update_permissions.start()
+
+    print("Listening on", APP_LISTEN)
     app.run(host=APP_LISTEN)

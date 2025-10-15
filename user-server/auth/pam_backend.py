@@ -1,9 +1,11 @@
 import getpass
 import pam
+import os
 
 class AuthBackend:
     def __init__(self, service="login"):
         self.username = getpass.getuser()
+        self.uid = os.getuid()
         self.service = service
 
     def check_password(self, username, password):
