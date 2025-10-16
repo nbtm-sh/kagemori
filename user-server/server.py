@@ -224,8 +224,9 @@ def validate_job_configuration(job_configuration):
     job_running = get_job_state(job_configuration["job_id"]) == "RUNNING"
     job_node = get_ip_literal(get_job_node(job_configuration["job_id"])) == get_ip_literal(job_configuration["job_node"])
     job_owner = get_job_owner(job_configuration["job_id"]) == get_current_user()
+    job_url = job_configuration["job_url"] != "" 
 
-    return all([job_running, job_node, job_owner])
+    return all([job_running, job_node, job_owner, job_url])
 
 def queue_app(server_configuration):
     job_configuration_file_path = format_path(server_configuration["app"]["job_config"])
@@ -301,6 +302,11 @@ def update_job_configuration(server_configuration):
 def thread_check_job_running(delay=10):
     global sm
     while validate_job_configuration(job_state):
+        update_job_configuration(config)
+        if "request_state" in job_state.keys():
+            if job_state["request_state"] == "STOP":
+                cancel_job(job_state["job_id"])
+
         print("Check job is still running")
         time.sleep(delay)
     print("Job has stopped")
@@ -495,7 +501,9 @@ def state():
     else:
         print("No session token provided")
         return "Unauthorized", 401
-    return jsonify(global_state)
+    retr_state = global_state
+    retr_state["job_state"] = job_state
+    return jsonify(retr_state)
 
 if __name__ == "__main__":
     if not check_configuration_directories(config):
