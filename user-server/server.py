@@ -117,9 +117,9 @@ def update_socket_permissions(server_configuration, socket_path):
     socket_dir = os.path.dirname(socket_path)
     group = grp.getgrnam(server_configuration["server"]["listen"]["socket_group"]).gr_gid
 
-    os.chmod(socket_dir, 0o0770)
-    os.chmod(socket_path, 0o0770)
-    os.chown(socket_path, -1, group)
+    os.chmod(socket_dir, 0o0777)
+    os.chmod(socket_path, 0o0777)
+    #os.chown(socket_path, -1, group)
 
 def thread_update_socket_permissions():
     time.sleep(1)
