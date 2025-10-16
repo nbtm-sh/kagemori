@@ -353,7 +353,7 @@ def nginx_clear_socket(server_configuration):
 
 def nginx_stop(server_configuration):
     nginx_proc = nginx_get_pid(server_configuration)
-    command = ["nginx", "-c", format_path(server_configuration["nginx"]["nginx_config"]), "-p", format_path(server_configuration["nginx"]["nginx_prefix"]), "-s", "stop"]
+    command = ["nginx", "-c", format_path(server_configuration["nginx"]["nginx_config"]), "-p", format_path(server_configuration["nginx"]["nginx_prefix"]), "-s", "quit"]
     process = subprocess.check_output(command)
     nginx_proc.kill()
 
