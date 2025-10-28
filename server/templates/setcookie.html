@@ -1,0 +1,29 @@
+<html>
+
+</html>
+
+<script>
+function setCookie(cookieKey, cookieValue, cookieDaysExpire = 7) {
+	var expires = "";
+	if (cookieDaysExpire) {
+		var cookieExpireDate = new Date();
+		cookieExpireDate.setTime(cookieExpireDate.getTime() + (cookieDaysExpire*86400000));
+		expires = cookieExpireDate.toUTCString();
+	}
+
+	document.cookie = cookieKey + "=" + cookieValue + "; SameSite=Lax; expires=" + expires + "; path=/";
+}
+
+function readParams() {
+	const urlParams = new URLSearchParams(window.location.search);
+	for (const key of urlParams.keys()) {
+		setCookie(key, urlParams.get(key));
+	}
+	
+	window.location.replace(urlParams.get("redirect"))
+}
+
+window.onload = function() {
+	readParams()
+}
+</script>

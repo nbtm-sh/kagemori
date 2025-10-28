@@ -17,6 +17,26 @@
 		<div class="status-container" id="login-state">
 			<span class="login-status-currnt" id="login-state-text">Authenticating...</span>
 		</div>
+		<div class="app-select-container" id="app-select">
+			<div class="application-item">
+				<div class="application-item-left">
+					<span class="application-title">sdesktop</span>
+					<span class="application-subtext">/apps/opt/sdesktop/dev</span>
+				</div>
+				<div class="application-item-right">
+					<button class="application-button">Start</button>
+				</div>
+			</div>
+			<div class="application-item">
+				<div class="application-item-left">
+					<span class="application-title">cryosparc</span>
+					<span class="application-subtext">/apps/opt/cryosparc/dev</span>
+				</div>
+				<div class="application-item-right">
+					<button class="application-button">Start</button>
+				</div>
+			</div>
+		</div>
 		<div class="footer">
 			<span class="footer-version">kagemori {{ git_branch }} (git <span class="code">{{ git_hash }}<span>)<span>
 		</div>
@@ -31,12 +51,14 @@
 		const GLOBAL_STATE_JOB_STARTED = "JOBSTART"
 		const GLOBAL_STATE_JOB_RESUMING = "JOBRESUMING"
 		const GLOBAL_STATE_ERROR = "ERROR"
+		const GLOBAL_STATE_APPLICATION_SELECT = "APPSELECT"
 		const IDS = {
 			loginForm: "login-form",
 			loginState: "login-state",
 			loginStateText: "login-state-text",
 			errorContainer: "login-error-container",
-			errorMessageDesc: "login-error-message"
+			errorMessageDesc: "login-error-message",
+			applicationList: "app-select"
 		}
 		const KAGE_COOKIE_NAME = "kageauth"
 		const LANG_DEFAULT = "en-US"
@@ -51,6 +73,9 @@
 				stateJobResuming: "Resuming session...",
 				errorInvalidUsernameOrPassword: "Invalid username or password",
 				errorConnectionFailed: "Failed to connect to the userland daemon socket. Is the daemon running?",
+				buttonTextStart: "Start",
+				buttonTextStarting: "Starting...",
+				buttonTextConnect: "Connect"
 			}
 		}
 		// LOGIN = Show login prompt
@@ -58,8 +83,112 @@
 		var GLOBAL_SATE = GLOBAL_STATE_LOGIN
 		var GLOBAL_SESSION_TOKEN = "";
 		var ERROR_MESSAGE = "";
+		var applications = [];
+
+		const updateInterval = setInterval(async () => {
+			if (GLOBAL_SESSION_TOKEN != "") {
+				await getApplicationStates();
+				await renderApplicationList();
+			}
+		}, 500)
+
+		async function startApp(idx) {
+			var appName = applications[idx].app_name;
+			if (applications[idx].state.gui_state != "READY") {
+				var response = await fetch(`/uapi/api/start?app=${appName}`);
+			} else {
+				args = []
+				args.push(KAGE_COOKIE_NAME + "=" + GLOBAL_SESSION_TOKEN);
+				if (applications[idx].config.set_cookie != null) {
+					var cookieKeys = Object.keys(applications[idx].config.set_cookie);
+					for (var i = 0; i < cookieKeys.length; i += 1) {
+						if (cookieKeys[i] == "redirect") {
+							continue;
+						}
+						args.push(cookieKeys[i] + "=" + applications[idx].config.set_cookie[cookieKeys[i]])
+					}
+				}
+				args.push("redirect=" + encodeURI(applications[idx].config.job_url));
+				window.location.href = window.location.protocol + "//" + applications[idx].domain + "/kagemori/mapi/uri/setcookie?" + args.join("&");
+			}
+		}
+
+		async function getApplicationStates() {
+			var response = await fetch("/uapi/api/state");
+			var jsonResponse = await response.json();
+			applications = jsonResponse;
+		}
+
+		function getButtonStatusString(guiState) {
+			if (guiState == "READY") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextConnect;
+			}
+			if (guiState == null) {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextStart;
+			}
+			return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextStarting;
+		}
+
+		async function renderApplicationList() {
+			// Use the applications variable
+			var appList = document.getElementById(IDS.applicationList);
+			appList.innerHTML = "";
+
+			for (var i = 0; i < applications.length; i += 1) {
+				var indexApp = applications[i];
+				console.log(indexApp);
+				var buttonText = getButtonStatusString(indexApp.state.gui_state);
+				appList.innerHTML += `
+					<div class="application-item">
+	       					<div class="application-item-left">
+							<span class="application-title">${indexApp.app_name}</span>
+							<span class="application-subtext">${indexApp.path}</span>
+	       					</div>
+	       					<div class="application-item-right">
+							<span class="application-button" onclick=startApp(${i}) id="app-button-${i}">${buttonText}</span>
+	       					</div>
+	       				</div>
+	       			`;
+				
+			}
+		}
 
 		async function login() {
+			GLOBAL_STATE = GLOBAL_STATE_AUTHENTICATING;
+			updateLoginState();
+
+			var submitData = {
+				username: document.getElementById("input-username").value,
+				password: document.getElementById("input-password").value
+			}
+			
+			var loginResponse = await fetch("/kagemori/mapi/login", {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json; charset=utf8'
+				},
+				body: JSON.stringify(submitData)
+			});
+			
+			var loginJsonResponse = await loginResponse.json();
+			if (loginJsonResponse["error"] != null) {
+				ERROR_MESSAGE = loginJsonResponse["error"];
+				GLOBAL_STATE = GLOBAL_STATE_ERROR;
+				updateLoginState();
+				return;
+			}
+
+			// Obtain session token
+			GLOBAL_SESSION_TOKEN = loginJsonResponse["session-token"];
+			setCookie(KAGE_COOKIE_NAME, GLOBAL_SESSION_TOKEN);
+			await getApplicationStates();
+			await renderApplicationList();
+
+			GLOBAL_STATE = GLOBAL_STATE_APPLICATION_SELECT;
+			updateLoginState();
+		}
+
+		async function legacyLogin() {
 			GLOBAL_STATE = GLOBAL_STATE_AUTHENTICATING;
 			updateLoginState();
 
@@ -214,6 +343,14 @@
 			document.getElementById(IDS.errorContainer).style.display = "flex";
 		}
 
+		function hideAppList() {
+			document.getElementById(IDS.applicationList).style.display = "none";
+		}
+
+		function showAppList() {
+			document.getElementById(IDS.applicationList).style.display = "flex";
+		}
+
 		function updateLoginState() {
 			var stateTextElement = document.getElementById(IDS.loginStateText);
 			var errorMessageElement = document.getElementById(IDS.errorMessageDesc);
@@ -222,12 +359,20 @@
 				hideLoginState();
 				showLoginForm();
 				hideError();
+				hideAppList();
 			}
 			if (GLOBAL_STATE == GLOBAL_STATE_AUTHENTICATING) {
 				hideLoginForm();
 				showLoginState();
 				hideError();
+				hideAppList();
 				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateAuthenticating;
+			}
+			if (GLOBAL_STATE == GLOBAL_STATE_APPLICATION_SELECT) {
+				hideLoginForm();
+				hideLoginState();
+				hideError();
+				showAppList();
 			}
 			if (GLOBAL_STATE == GLOBAL_STATE_JOB_CHECK_STATE) {
 				stateTextElement.innerHTML = (STRINGS[navigator.language] || STRINGS['en-US']).stateCheckingJobState;
@@ -299,11 +444,62 @@ body {
 	cursor: pointer;
 	background-color: #2f8fff;
 }
+.application-button {
+	padding: 5px;
+	margin-top: 3px;
+	margin-bottom: 3px;
+	width: 100%;
+	color: #fff;
+	background-color: #2489ff;
+	border: 1px solid #1863b9;
+	border-radius: 5px;
+	font-family: Helvetica;
+	font-size: 12px;
+}
+.application-button:hover {
+	cursor: pointer;
+	background-color: #2f8fff;
+}
 .login-content-container {
 	width: 100%;
 	display: flex;
 	flex-direction: row;
 	justify-content: center;
+}
+.app-select-container {
+	width: 100%;
+	display: none;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+.application-item {
+	display: flex;
+	width: 25em;
+	flex-direction: row;
+	justify-content: space-between;
+	border-top: 1px solid #a29d9d;
+	padding-top: 10px;
+	padding-bottom: 10px;
+	padding-left: 5px;
+	padding-right: 5px;
+}
+.application-title {
+	font-family: Helvetica;
+	font-size: 18px;
+}
+.application-subtext {
+	font-family: Helvetica;
+	font-size: 12px;
+	color: #a29d9d;
+}
+.application-item-left {
+	display: flex;
+	flex-direction: column;
+}
+
+.application-item-right {
+	display: flex;
 }
 .login-form-container {
 	width: 25em;

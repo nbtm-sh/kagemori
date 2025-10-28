@@ -85,5 +85,9 @@ def login_form():
         git_branch = project_branch
     )
 
+@app.route("/mapi/uri/setcookie")
+def setcookie():
+    return render_template("setcookie.html")
+
 if __name__ == "__main__":
     app.run(host="::", port="3621")
