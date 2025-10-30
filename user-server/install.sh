@@ -2,7 +2,7 @@
 
 set -xou pipefail
 
-INSTALL_PATH="${HOME}/.local/opt/kagemori"
+INSTALL_PATH="/opt/kagemori"
 
 GIT_REPO="https://github.com/nbtm-sh/kagemori.git"
 GIT_TAG="0.1-beta"
@@ -14,7 +14,7 @@ _KAGEMORI_USER_SERVER_PATH="user-server"
 _KAGEMORI_CONFIG_PATH="${HOME}/.config/kagemori/"
 _KAGEMORI_REQUIREMENTS_FILE="requirements.txt"
 _KAGEMORI_SERVER_FILE="server.py"
-_KAGEMORI_SYSTEMD_MODULE_FILE="${HOME}/.config/systemd/user/kagemori.service"
+_KAGEMORI_SYSTEMD_MODULE_FILE="/etc/systemd/user/kagemori.service"
 _KAGEMORI_START_SH_SCRIPT_FILE="start.sh"
 _KAGEMORI_PYTHON_COMMAND="python3"
 _KAGEMORI_PIP3_COMMAND="pip3"
@@ -38,8 +38,8 @@ $_KAGEMORI_PIP3_COMMAND install -r ${_KAGEMORI_REQUIREMENTS_FILE}
 # Write start.sh script
 cat > ${_KAGEMORI_START_SH_SCRIPT_FILE} << EOF
 #!/bin/bash
-source ./venv/bin/activate
-${_KAGEMORI_PYTHON_COMMAND} ${_KAGEMORI_SERVER_FILE}
+source ${INSTALL_PATH}/kagemori/${_KAGEMORI_USER_SERVER_PATH}/venv/bin/activate
+${_KAGEMORI_PYTHON_COMMAND} ${INSTALL_PATH}/kagemori/${_KAGEMORI_USER_SERVER_PATH}/${_KAGEMORI_SERVER_FILE}
 EOF
 chmod 755 ${_KAGEMORI_START_SH_SCRIPT_FILE}
 
@@ -57,7 +57,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${_current_working_directory}
+WorkingDirectory=%h
 ExecStart=${_current_working_directory}/${_KAGEMORI_START_SH_SCRIPT_FILE}
 Restart=on-failure
 RestartSec=10

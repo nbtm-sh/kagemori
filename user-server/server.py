@@ -1,4 +1,4 @@
-import flask, os, socket, yaml, subprocess, getpass, json, time, threading, datetime, psutil, pathlib, pwd, grp, logging
+import flask, os, socket, yaml, subprocess, getpass, json, time, threading, datetime, psutil, pathlib, pwd, grp, logging, threading
 import libkage.dirs, libkage.auth.pam_backend, libkage.session, libkage.secure, libkage.app, libkage.queue.slurm, libkage.nginx
 from flask import request, jsonify, render_template, Response
 from flask.globals import request_ctx
@@ -59,10 +59,10 @@ ng = libkage.nginx.NGINXInstance(
     local_socket = config["kagemori"]["listen"]["socket"],
     nginx_listen = config["nginx"]["listen"]["socket"],
     nginx_prefix_path = config["nginx"]["prefix"],
-    nginx_config_path = config["nginx"]["path"]["config"],
-    nginx_log_path = config["nginx"]["path"]["logs"],
-    nginx_pid_path = config["nginx"]["path"]["pid"],
-    nginx_tmp_path = config["nginx"]["path"]["tmp"]
+    nginx_config_path = os.path.join(config["nginx"]["prefix"], config["nginx"]["path"]["config"]),
+    nginx_log_path = os.path.join(config["nginx"]["prefix"], config["nginx"]["path"]["logs"]),
+    nginx_pid_path = os.path.join(config["nginx"]["prefix"], config["nginx"]["path"]["pid"]),
+    nginx_tmp_path = os.path.join(config["nginx"]["prefix"], config["nginx"]["path"]["tmp"])
 )
 
 # Load applications
@@ -90,6 +90,13 @@ for app_config in config["apps"]:
     logger.info(f"Registered app '{append_app.app_name}'!")
 
 logger.info(f"Loaded with {len(apps)} registered app(s).")
+
+def _thread_set_socket_permissions(paths):
+    logger.info("Started thread to set permissions on the socket files")
+    time.sleep(1)
+    for path in paths:
+        logger.info(f"Set permission on {path}")
+        os.chmod(path, 0o777)
 
 @app.route("/api/login", methods=["POST"])
 def login():
@@ -197,10 +204,29 @@ def setcookie():
 #
 
 if __name__ == "__main__":
-    print(apps)
-    print(apps[0].serialise())
+    paths_to_create = [
+        dw.format_path(config["nginx"]["prefix"]),
+        os.path.join(dw.format_path(config["nginx"]["prefix"]), "logs"),
+        os.path.join(dw.format_path(config["nginx"]["prefix"]), "tmp"),
+        os.path.dirname(dw.format_path(config["nginx"]["listen"]["socket"])),
+        os.path.dirname(dw.format_path(config["kagemori"]["listen"]["socket"])),
+    ]
+
+    for check_path in paths_to_create:
+        logger.debug(f"Checking directory {check_path}")
+        if not os.path.isdir(check_path):
+            logger.info(f"Creating directory {check_path}")
+            os.makedirs(check_path)
 
     ng.write_nginx_config()
+    if ng._get_nginx_process():
+        logger.info("NGINX is already running! Stopping...")
+        ng.stop_nginx()
+
     ng.start_nginx()
+
+    # Start the thread to set the permissions on the socket
+    permission_thread = threading.Thread(target=_thread_set_socket_permissions, args=([dw.format_path(config["kagemori"]["listen"]["socket"]), dw.format_path(config["nginx"]["listen"]["socket"])],))
+    permission_thread.start()
 
     app.run(host=APP_LISTEN)
