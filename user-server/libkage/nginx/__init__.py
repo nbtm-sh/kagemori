@@ -40,16 +40,19 @@ class NGINXInstance:
         pass
     
     def _get_nginx_process(self):
-        if not os.path.exists(self.config.nginx_pid_path):
+        if not os.path.exists(self.config.pid_path):
             return None
         
         nginx_pid = None
-        with open(self.config.nginx_pid_path, "r") as fp:
+        with open(self.config.pid_path, "r") as fp:
             nginx_pid = int(fp.read())
 
-        nginx_process = psutil.Process(nginx_pid)
-        if nginx_process.name() == "nginx":
-            return nginx_process
+        try:
+            nginx_process = psutil.Process(nginx_pid)
+            if nginx_process.name() == "nginx":
+                return nginx_process
+        except:
+            return False
     
     def write_nginx_config(self):
         self.logger.info(f"Writing NGINX configuration to {self.config.config_path}")
