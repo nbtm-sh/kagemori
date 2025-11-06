@@ -5,7 +5,7 @@ set -xou pipefail
 INSTALL_PATH="/opt/kagemori"
 
 GIT_REPO="https://github.com/nbtm-sh/kagemori.git"
-GIT_TAG="0.1-beta"
+GIT_TAG="0.3rc2"
 GIT_BRANCH="master"
 CONFIG_PATH="/apps/opt/kagemori/config.yaml"
 
