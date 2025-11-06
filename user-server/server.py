@@ -168,8 +168,9 @@ def session():
     for app in apps:
         if app.domain == hostname:
             logger.debug(f"Found app {app.domain}")
-            resp.headers["X-Kage-Forward"] = app.job_configuration["job_node"];
-            resp.headers["X-Kage-SSL"] = os.path.join(app.job_state.job_tmp_directory, "cert.pem")
+            if app.job_configuration is not None:
+                resp.headers["X-Kage-Forward"] = app.job_configuration["job_node"];
+                resp.headers["X-Kage-SSL"] = os.path.join(app.job_state.job_tmp_directory, "cert.pem")
     return resp
 
 @app.route("/uapi/api/setcookie")
