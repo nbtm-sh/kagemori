@@ -47,4 +47,11 @@ class DirWrapper:
         os.makedirs(full_path)
 
         return full_path
+
+    def create_directory_in_prefix(self, path):
+        path = self.format_path(path)
+        tmp_prefix = self.format_path(self.prefix)
+        new_dir = os.path.join(tmp_prefix, path)
+
+        os.makedirs(new_dir)
     
