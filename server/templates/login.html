@@ -95,6 +95,7 @@
 		var GLOBAL_SESSION_TOKEN = "";
 		var ERROR_MESSAGE = "";
 		var oldApplicationsState = [];
+		var applicationsHash = '';
 		var applications = [
   {
     "app_name": "sdesktop",
@@ -146,11 +147,20 @@
 
 		const updateInterval = setInterval(async () => {
 			if (GLOBAL_SESSION_TOKEN != "") {
-				await getApplicationStates();
-				await renderApplicationList();
+				if (await getApplicationStates()) {
+					await renderApplicationList();
+				}
 				updateTimeRemaining();
 			}
 		}, 500)
+
+		async function sha256(data) {
+			var buffer = new TextEncoder().encode(data);
+			var hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+			var hashArray = Array.from(new Uint8Array(hashBuffer));
+			var hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+			return hashHex;
+		}
 
 		async function startApp(idx) {
 			var appName = applications[idx].app_name;
@@ -174,7 +184,7 @@
 		}
 		async function stopApp(idx) {
 			var appName = applications[idx].app_name;
-			if (applications[idx].state.gui_state != "READY") {
+			if (applications[idx].state.gui_state == "READY") {
 				var response = await fetch(`/uapi/api/stop?app=${appName}`);
 			}
 		}
@@ -182,9 +192,14 @@
 
 		async function getApplicationStates() {
 			var response = await fetch("/uapi/api/state");
-			var jsonResponse = await response.json();
-			applications = jsonResponse;
-			return true;
+			var rawResponse = await response.text();
+			var jsonResponse = JSON.parse(rawResponse);
+			applications = jsonResponse.data;
+			if (applicationsHash != jsonResponse.hash) {
+				applicationsHash = jsonResponse.hash;
+				return true;
+			}
+			return false;
 		}
 
 		function getButtonStatusString(guiState) {
