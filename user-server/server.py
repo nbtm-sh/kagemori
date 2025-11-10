@@ -156,6 +156,28 @@ def start():
     logger.info(f"Failed to start app. Not found")
     return "Bad request", 500
 
+@app.route("/uapi/api/stop")
+def stop():
+    if config["kagemori"]["cookie"] not in request.cookies:
+        logger.debug(f"Missing session cookie")
+        return "Unauthorised", 401
+
+    if not sm.is_valid(request.cookies.get(config["kagemori"]["cookie"])):
+        logger.debug(f"Invalid session cookie")
+        return "Unauthorised", 401
+    
+    # Check that the app name exists in the registered apps
+    if "app" not in request.args.keys():
+        logger.debug(f"Missing 'app' key")
+        return "Bad request", 500
+
+    for app in apps:
+        if app.app_name == request.args.get("app"):
+            app.stop()
+            return "OK", 200
+    return "Bad request", 500
+
+
 @app.route("/api/session")
 def session():
     logger.debug(dir(request_ctx))
