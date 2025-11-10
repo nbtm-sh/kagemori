@@ -21,6 +21,8 @@ class App:
         self.username = username
         self.logger = logging.getLogger()
         self.domain = domain
+        self.check_configuration_thread = None
+        self.lock = False
 
         # Environment variables
         self.env_var_job_config_path = env_var_job_config_path
@@ -62,6 +64,7 @@ class App:
         self.logger.debug("Cleaning job states...")
         self.job_state = libkage.queue.state.JobState()
         self.job_configuration = None
+        self.lock = False
 
     def serialise(self):
         return {
@@ -113,15 +116,18 @@ class App:
         self.job_state.job_state = self.queue_manager.get_job_state(self.job_state.job_id)
         self.job_state.job_owner = self.queue_manager.get_job_owner(self.job_state.job_id)
         self.job_state.job_node = self.queue_manager.get_job_node(self.job_state.job_id)
+        self.job_state.end_date = self.queue_manager.end_time(self.job_state.job_id)
         self.logger.debug(f"Job config: job_state: {self.job_state.job_state}, job_owner: {self.job_state.job_owner}, job_node: {self.job_state.job_node}")
         #self.job_state = self.queue_manager.get_job_state(self.job_state.job_id)
         self.update_job_configuration()
 
     def start(self):
         # Check that no job is already running
-        if self.job_state.job_state == "RUNNING":
+        if self.lock: 
             self.logger.info(f"Job is already running. Will not start another!")
             return True
+
+        self.lock = True
 
         # Generate job UUID
         self.job_state.job_uuid = str(uuid.uuid4())
@@ -199,13 +205,14 @@ class App:
             return False
 
         self.job_state.gui_state = "READY" 
-        check_configuration_thread = threading.Thread(target=App._thread_check_job_state, args=(self,))
-        check_configuration_thread.start()
+        self.check_configuration_thread = threading.Thread(target=App._thread_check_job_state, args=(self,))
+        self.check_configuration_thread.start()
 
         return True
 
     def stop(self):
         self.queue_manager.cancel_job(self.job_state.job_id)
+        self.lock = False
 
     def session(self):
         if self.job_state.state == "RUNNING":
