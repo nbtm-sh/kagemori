@@ -28,12 +28,12 @@ class SlurmManager:
         return output
 
     @staticmethod
-    def _slurm_sbatch(script, **kwargs):
+    def _slurm_sbatch(script, output_file, **kwargs):
         export = "ALL"
         if len(kwargs) > 0:
             for k, v in kwargs.items():
                 export += f",{k}={v}"
-        command = [SlurmManager.COMMAND_SBATCH, "--export", export, script]
+        command = [SlurmManager.COMMAND_SBATCH, "--export", export, "--output", output_file, script]
         format_command = ' '.join(command)
         logging.getLogger().debug(f"Execute {format_command}")
         job_id = subprocess.check_output(command).decode("utf-8").split()[-1]
@@ -65,8 +65,8 @@ class SlurmManager:
         return socket.gethostbyname(hostname)
     
     @staticmethod
-    def submit_job(script, **kwargs):
-        return SlurmManager._slurm_sbatch(script, **kwargs)
+    def submit_job(script, output_file="slurm-%j.out", **kwargs):
+        return SlurmManager._slurm_sbatch(script, output_file, **kwargs)
 
     @staticmethod
     def cancel_job(job_id):
