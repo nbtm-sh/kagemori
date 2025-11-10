@@ -1,4 +1,4 @@
-import subprocess, socket, logging
+import subprocess, socket, logging, datetime
 
 class SlurmManager:
     COMMAND_SBATCH = "sbatch"
@@ -71,4 +71,27 @@ class SlurmManager:
     @staticmethod
     def cancel_job(job_id):
         return SlurmManager._slurm_scancel(job_id)
+
+    @staticmethod
+    def end_time(job_id):
+        elapsed_time = SlurmManager._slurm_sacct("Elapsed", job_id)
+        time_limit = SlurmManager._slurm_sacct("TimeLimit", job_id)
+
+        if len(elapsed_time) == 0 or len(time_limit) == 0:
+            return
+
+        elapsed_time = elapsed_time[0]
+        time_limit = time_limit[0]
+
+        elapsed_date = datetime.datetime.strptime(elapsed_time, "%H:%M:%S")
+        time_limit_date = datetime.datetime.strptime(time_limit, "%H:%M:%S")
+
+        elapsed_delta = datetime.timedelta(hours=elapsed_date.hour, minutes=elapsed_date.minute, seconds=elapsed_date.second)
+        time_limit_delta = datetime.timedelta(hours=time_limit_date.hour, minutes=time_limit_date.minute, seconds=time_limit_date.second)
+
+        now = datetime.datetime.utcnow()
+        now -= elapsed_delta
+        now += time_limit_delta
+        
+        return now
 
