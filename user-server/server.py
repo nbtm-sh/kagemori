@@ -2,6 +2,7 @@ import flask, os, socket, yaml, subprocess, getpass, json, time, threading, date
 import libkage.dirs, libkage.auth.pam_backend, libkage.session, libkage.secure, libkage.app, libkage.queue.slurm, libkage.nginx
 from flask import request, jsonify, render_template, Response
 from flask.globals import request_ctx
+import hashlib
 
 logging.basicConfig()
 logger = logging.getLogger()
@@ -130,6 +131,8 @@ def get_apps():
         return "Unauthorised", 401
 
     serial_return = [i.serialise() for i in apps]
+    state_hash = hashlib.sha256(bytes(json.dumps(serial_return), "UTF-8")).hexdigest()
+    serial_return = {"hash": state_hash, "data": serial_return}
     return jsonify(serial_return)
 
 @app.route("/uapi/api/start")
