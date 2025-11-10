@@ -1,23 +1,24 @@
-<html> <head>
+<html>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
 	</head>
 	<body>
 		<div class="dummy">
 		</div>
-		<div class="login-content-container" id="login-form">
+		<div class="login-content-container" id="login-form" style="display: flex;">
 			<div class="login-form-container">
-				<div class="login-form-error" id="login-error-container">
+				<div class="login-form-error" id="login-error-container" style="display: flex;">
 					<span class="login-form-error-header"><b>Error</b></span>
-					<span class="login-form-error-description" id="login-error-message">Unable to establish connection to <span class="code">z3545907</span>'s userland daemon (<span class="code">/run/user/13545907/kagemori/kagemori.sock</span>). File not found. Is the daemon running with loginctl linger enabled?</span>
+					<span class="login-form-error-description" id="login-error-message">Invalid username or password</span>
 				</div>
-				<input class="login-input" id="input-username" type="text" placeholder="{{ username_placeholder }}"><br>
-				<input class="login-input" id="input-password" type="password" placeholder="{{ password_placeholder }}"><br>
+				<input class="login-input" id="input-username" type="text" placeholder="zID"><br>
+				<input class="login-input" id="input-password" type="password" placeholder="zPass"><br>
 				<button class="login-button" onclick="login()">Login</button>
 			</div>
 		</div>
-		<div class="status-container" id="login-state">
+		<div class="status-container" id="login-state" style="display: none;">
 			<span class="login-status-currnt" id="login-state-text">Authenticating...</span>
 		</div>
-		<div class="app-select-container" id="app-select">
+		<div class="app-select-container" id="app-select" style="display: none;">
 			<div class="application-item">
 				<div class="application-item-left">
 					<span class="application-title">sdesktop</span>
@@ -38,9 +39,9 @@
 			</div>
 		</div>
 		<div class="footer">
-			<span class="footer-version">kagemori {{ git_branch }} (git <span class="code">{{ git_hash }}<span>)<span>
-		</div>
-	</body>
+			<span class="footer-version">kagemori master (git <span class="code">21949bb<span>)<span>
+		</span></span></span></span></div>
+	
 	<script>
 		const GLOBAL_STATE_LOGIN = "LOGIN"
 		const GLOBAL_STATE_AUTHENTICATING = "AUTH"
@@ -75,20 +76,79 @@
 				errorConnectionFailed: "Failed to connect to the userland daemon socket. Is the daemon running?",
 				buttonTextStart: "Start",
 				buttonTextStarting: "Starting...",
-				buttonTextConnect: "Connect"
+				buttonTextConnect: "Connect",
+				buttonTextStopping: "Stopping...",
+				statusTextStopped: "Stopped",
+				statusTextSecure: "Securing connection...",
+				statusTextResource: "Allocating resources...",
+				statusTextResourceAwait: "Awaiting available resources...",
+				statusTextStarted: "Resources allocated.",
+				statusTextConfig: "Awaiting job configuration...",
+				statusTextReady: "Running",
+				statusTextFailed: "Failed",
+				statusTextStopping: "Stopping..."
 			}
 		}
 		// LOGIN = Show login prompt
 		// AUTH = Awaiting authentication response
-		var GLOBAL_SATE = GLOBAL_STATE_LOGIN
+		var GLOBAL_STATE = GLOBAL_STATE_APPLICATION_SELECT
 		var GLOBAL_SESSION_TOKEN = "";
 		var ERROR_MESSAGE = "";
-		var applications = [];
+		var oldApplicationsState = [];
+		var applications = [
+  {
+    "app_name": "sdesktop",
+    "config": null,
+    "domain": "desktop.discworld.analytical.unsw.edu.au",
+    "path": "/apps/opt/sdesktop/dev/",
+    "state": {
+      "gui_state": null,
+      "job_id": null,
+      "job_node": null,
+      "job_owner": null,
+      "job_state": null,
+      "job_tmp_directory": null,
+      "job_uuid": null
+    }
+  },
+  {
+    "app_name": "cryosparc",
+    "config": null,
+    "domain": "cryosparc.discworld.analytical.unsw.edu.au",
+    "path": "/apps/opt/cryosparc/dev/",
+    "state": {
+      "gui_state": null,
+      "job_id": null,
+      "job_node": null,
+      "job_owner": null,
+      "job_state": null,
+      "job_tmp_directory": null,
+      "job_uuid": null
+    }
+  },
+  {
+    "app_name": "test",
+    "config": null,
+    "domain": "test.dummy.tld",
+    "path": "/home/z3545907/kagemoritest/",
+    "state": {
+      "end_date": "2025-11-10T05:10:34.081449",
+      "gui_state": "SECURE",
+      "job_id": null,
+      "job_node": null,
+      "job_owner": null,
+      "job_state": null,
+      "job_tmp_directory": null,
+      "job_uuid": null
+    }
+  }
+];
 
 		const updateInterval = setInterval(async () => {
 			if (GLOBAL_SESSION_TOKEN != "") {
 				await getApplicationStates();
 				await renderApplicationList();
+				updateTimeRemaining();
 			}
 		}, 500)
 
@@ -112,21 +172,82 @@
 				window.location.href = window.location.protocol + "//" + applications[idx].domain + "/kagemori/mapi/uri/setcookie?" + args.join("&");
 			}
 		}
+		async function stopApp(idx) {
+			var appName = applications[idx].app_name;
+			if (applications[idx].state.gui_state != "READY") {
+				var response = await fetch(`/uapi/api/stop?app=${appName}`);
+			}
+		}
+
 
 		async function getApplicationStates() {
 			var response = await fetch("/uapi/api/state");
 			var jsonResponse = await response.json();
 			applications = jsonResponse;
+			return true;
 		}
 
 		function getButtonStatusString(guiState) {
 			if (guiState == "READY") {
 				return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextConnect;
 			}
+			if (guiState == "STOPPING") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextStopping;
+			}
 			if (guiState == null) {
 				return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextStart;
 			}
 			return (STRINGS[navigator.language] || STRINGS['en-US']).buttonTextStarting;
+		}
+
+		function getButtonClass(guiState) {
+			if (guiState == "READY" || guiState == null) {
+				return "";
+			}
+			return "application-button-disabled"
+		}
+
+		function getStatusText(guiState) {
+			if (guiState == "READY") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextReady;
+			}
+			if (guiState == null) {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextStopped;
+			}
+			if (guiState == "SECURE") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextSecure;
+			}
+			if (guiState == "RESOURCE") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextResource;
+			}
+			if (guiState == "STARTED") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextStarted;
+			}
+			if (guiState == "CONFIG") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextConfig;
+			}
+			if (guiState == "FAILED") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextFailed;
+			}
+			if (guiState == "STOPPING") {
+				return (STRINGS[navigator.language] || STRINGS['en-US']).statusTextStopping;
+			}
+		}
+
+		function getCircleColour(guiState) {
+			if (guiState == null) {
+				return "circle-blue";
+			}
+			if (guiState == "READY") {
+				return "circle-green";
+			}
+			if (guiState == "FAILED") {
+				return "circle-red";
+			}
+			if (guiState == "STOPPING") {
+				return "circle-red-pulse";
+			}
+			return "circle-yellow";
 		}
 
 		async function renderApplicationList() {
@@ -138,14 +259,22 @@
 				var indexApp = applications[i];
 				console.log(indexApp);
 				var buttonText = getButtonStatusString(indexApp.state.gui_state);
+				var circleClass = getCircleColour(indexApp.state.gui_state);
+				var statusText = getStatusText(indexApp.state.gui_state);
+				var buttonClass = getButtonClass(indexApp.state.gui_state);
 				appList.innerHTML += `
 					<div class="application-item">
 	       					<div class="application-item-left">
 							<span class="application-title">${indexApp.app_name}</span>
 							<span class="application-subtext">${indexApp.path}</span>
+							<div class="application-state-subtext">
+								<div class="circle ${circleClass}"></div><span class="application-state-font">${statusText}</span>
+								<span class="application-time-remaining" id="time-remaining-${i}"></span>
+							</div>
 	       					</div>
 	       					<div class="application-item-right">
-							<span class="application-button" onclick=startApp(${i}) id="app-button-${i}">${buttonText}</span>
+							<span class="application-button application-button-left ${buttonClass}" onclick=startApp(${i}) id="app-button-${i}">${buttonText}</span>
+							<span class="application-button application-button-right ${buttonClass}" onclick=stopApp(${i}) id="app-button-${i}">×</span>
 	       					</div>
 	       				</div>
 	       			`;
@@ -153,9 +282,42 @@
 			}
 		}
 
+		function updateTimeRemaining() {
+			for (var i = 0; i < applications.length; i += 1) {
+				if (applications[i].state.end_date != null) {
+					if (applications[i].state.gui_state != "READY") {
+						document.getElementById(`time-remaining-${i}`).innerHTML = "";
+						continue;
+					}
+					var end = new Date(applications[i].state.end_date + "Z");
+					var now = new Date();
+					var diff = end - now;
+					
+					var hours = String(Math.floor(diff / (1000 * 60 * 60))).padStart(2, '0')
+					var minutes = String(Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))).padStart(2, '0');
+					var seconds = String(Math.floor((diff % (1000 * 60)) / 1000)).padStart(2, '0');
+
+					// TODO: Locale spesific
+					document.getElementById(`time-remaining-${i}`).innerHTML = `(${hours}:${minutes}:${seconds} remaining)`
+				}
+			}
+		}
+
 		async function login() {
 			GLOBAL_STATE = GLOBAL_STATE_AUTHENTICATING;
 			updateLoginState();
+			
+			var testAuth = await fetch("/uapi/api/state");
+			if (testAuth.status == 200) {
+				GLOBAL_SESSION_TOKEN = readCookies().kageauth;
+				if (await getApplicationStates()) {
+					await renderApplicationList();
+				}
+
+				GLOBAL_STATE = GLOBAL_STATE_APPLICATION_SELECT;
+				updateLoginState();
+				return;
+			}
 
 			var submitData = {
 				username: document.getElementById("input-username").value,
@@ -181,8 +343,9 @@
 			// Obtain session token
 			GLOBAL_SESSION_TOKEN = loginJsonResponse["session-token"];
 			setCookie(KAGE_COOKIE_NAME, GLOBAL_SESSION_TOKEN);
-			await getApplicationStates();
-			await renderApplicationList();
+			if (await getApplicationStates()) {
+				await renderApplicationList();
+			}
 
 			GLOBAL_STATE = GLOBAL_STATE_APPLICATION_SELECT;
 			updateLoginState();
@@ -455,6 +618,14 @@ body {
 	border-radius: 5px;
 	font-family: Helvetica;
 	font-size: 12px;
+	height: auto;
+}
+.application-button-left {
+	border-radius: 5px 0px 0px 5px;
+	border-right: 0px;
+}
+.application-button-right {
+	border-radius: 0px 5px 5px 0px;
 }
 .application-button:hover {
 	cursor: pointer;
@@ -490,8 +661,18 @@ body {
 }
 .application-subtext {
 	font-family: Helvetica;
-	font-size: 12px;
+	font-size: 10px;
 	color: #a29d9d;
+}
+.application-state-font {
+	font-family: Helvetica;
+	font-size: 12px;
+	color: #4d5053;
+}
+.application-time-remaining {
+	font-family: Helvetica;
+	font-size: 12px;
+	color: #959aa0;
 }
 .application-item-left {
 	display: flex;
@@ -500,6 +681,13 @@ body {
 
 .application-item-right {
 	display: flex;
+	align-items: center;
+}
+.application-state-subtext {
+	display: flex;
+	flex-direction: row; 
+	gap: 5px;
+	margin-top: 5px;
 }
 .login-form-container {
 	width: 25em;
@@ -540,5 +728,52 @@ body {
 	font-family: Helvetica;
 	font-size: 24px;
 }
+.circle {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+}
+.circle-blue {
+	background-color: #2489ff;
+}
+.circle-yellow {
+	animation: yellow-pulse 1s ease-in-out infinite;
+}
+
+@keyframes yellow-pulse {
+	0%, 100% {
+		background-color: #eaa211;
+	}
+	50% {
+		background-color: #eec570;
+	}
+}
+
+.circle-green {
+	background-color: #06c328;
+}
+.circle-red {
+	background-color: #f52929;
+}
+.circle-red-pulse {
+	animation: red-pulse 1s ease-in-out infinite;
+}
+@keyframes red-pulse {
+	0%, 100% {
+		background-color: #f52929;
+	}
+	50% {
+		background-color: #e77070;
+	}
+}
+.application-button-disabled {
+	background-color: #c3c3c3;	
+	border: 1px solid #7f7f7f;
+}
+.application-button-disabled:hover {
+	background-color: #c3c3c3;	
+	border: 1px solid #7f7f7f;
+	cursor: pointer;
+}
 </style>
-</html>
+</body></html>
