@@ -112,11 +112,12 @@ class App:
         # All checks have passed
         return True
         
-    def update_job_state(self):
+    def update_job_state(self, update_time=False):
         self.job_state.job_state = self.queue_manager.get_job_state(self.job_state.job_id)
         self.job_state.job_owner = self.queue_manager.get_job_owner(self.job_state.job_id)
         self.job_state.job_node = self.queue_manager.get_job_node(self.job_state.job_id)
-        self.job_state.end_date = self.queue_manager.end_time(self.job_state.job_id)
+        if update_time:
+            self.job_state.end_date = self.queue_manager.end_time(self.job_state.job_id)
         self.logger.debug(f"Job config: job_state: {self.job_state.job_state}, job_owner: {self.job_state.job_owner}, job_node: {self.job_state.job_node}")
         #self.job_state = self.queue_manager.get_job_state(self.job_state.job_id)
         self.update_job_configuration()
@@ -127,6 +128,7 @@ class App:
             self.logger.info(f"Job is already running. Will not start another!")
             return True
 
+        self.job_state.gui_state = "SECURE"
         self.lock = True
 
         # Generate job UUID
@@ -139,8 +141,6 @@ class App:
         self.logger.debug(f"Job temp directory: {self.job_state.job_tmp_directory}")
         self.logger.debug(f"Job cert: {self.job_state.job_certificate}")
 
-        self.job_state.gui_state = "SECURE"
-
         # Configure environment variables
         start_script = os.path.join(self.path, App.START_SCRIPT)
         self.logger.debug(f"Start script: {start_script}")
@@ -148,7 +148,7 @@ class App:
         self.logger.debug(f"Config path: {config_path}")
 
         # Start job
-        self.job_state.job_id = self.queue_manager.submit_job(start_script, **{ # Exports
+        self.job_state.job_id = self.queue_manager.submit_job(start_script, self.job_state.job_tmp_directory + "/slurm-%j.out", **{ # Exports
             self.env_var_job_config_path: config_path,
             self.env_var_job_certificate_path: self.job_state.job_certificate.cert_out_path,
             self.env_var_job_key_path: self.job_state.job_certificate.cert_key_path,
@@ -204,6 +204,8 @@ class App:
             self.stop()
             return False
 
+        self.update_job_state(update_time=True)
+
         self.job_state.gui_state = "READY" 
         self.check_configuration_thread = threading.Thread(target=App._thread_check_job_state, args=(self,))
         self.check_configuration_thread.start()
@@ -211,6 +213,7 @@ class App:
         return True
 
     def stop(self):
+        self.job_state.gui_state = "STOPPING"
         self.queue_manager.cancel_job(self.job_state.job_id)
         self.lock = False
 
