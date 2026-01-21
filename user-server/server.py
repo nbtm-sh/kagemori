@@ -32,7 +32,7 @@ def main_load(reload_auth=True):
     global apps
     global APP_LISTEN
 
-    VERSION="0.4"
+    VERSION="0.6"
 
     logging.basicConfig()
     logger = logging.getLogger()
