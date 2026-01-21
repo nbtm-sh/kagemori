@@ -33,6 +33,9 @@ class DirWrapper:
 
         return job_tempdir_path
 
+    def get_temporary_job_dir(self, job_uuid):
+        return self._get_temp_dir(job_uuid)
+
     def clean_up_job_dir(self, job_uuid):
         job_tempdir_path = self._get_temp_dir(job_uuid)
         shutil.rmtree(job_tempdir_path)
@@ -47,7 +50,11 @@ class DirWrapper:
         os.makedirs(full_path)
 
         return full_path
-
+    
+    def get_dir_in_temp_dir(self, job_uuid, dir_name):
+        base_path = self._get_temp_dir(job_uuid)
+        return os.path.join(base_path, dir_name)
+    
     def create_directory_in_prefix(self, path):
         path = self.format_path(path)
         tmp_prefix = self.format_path(self.prefix)

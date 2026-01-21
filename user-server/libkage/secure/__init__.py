@@ -67,6 +67,16 @@ class SSL:
                 command
         )
 
+    def get_certificate(self, job_uuid):
+        cert_base_dir = self.dir_wrapper.get_dir_in_temp_dir(job_uuid, self.cert_dir)
+        cert_out_path = os.path.join(cert_base_dir, self.cert_file_out)
+        cert_key_path = os.path.join(cert_base_dir, self.cert_key_out)
+
+        return SSLCertPath(
+            cert_out_path,
+            cert_key_path
+        )
+
     def create_certificate(self, job_uuid, common_name = "localhost"):
         cert_base_dir = self.dir_wrapper.create_dir_in_temp_dir(job_uuid, self.cert_dir)
         cert_out_path = os.path.join(cert_base_dir, self.cert_file_out)
