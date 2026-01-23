@@ -13,31 +13,33 @@ class SlurmManager:
     def _slurm_sacct(output_format, job_id):
         command = [SlurmManager.COMMAND_SACCT, "-o", output_format, "-n", "-j", job_id]
         format_command = ' '.join(command)
-        logging.getLogger().debug(f"Execute {format_command}")
+        logging.getLogger().debug(f"Execute `{format_command}`")
         output = subprocess.check_output(command).decode("utf-8").replace(" ", "").split()
-        logging.getLogger().debug(f"Got {output}")
+        format_output = " ".join(output)
+        logging.getLogger().debug(f"Got '{output}'")
         return output 
 
     @staticmethod
     def _slurm_scancel(job_id):
         command = [SlurmManager.COMMNAD_SCANCEL, job_id]
         format_command = ' '.join(command)
-        logging.getLogger().debug(f"Execute {format_command}")
+        logging.getLogger().debug(f"Execute `{format_command}`")
         output = subprocess.check_output(command)
-        logging.getLogger().debug(f"Got {output}")
+        logging.getLogger().debug(f"Got '{output}'")
         return output
 
     @staticmethod
-    def _slurm_sbatch(script, output_file, **kwargs):
+    def _slurm_sbatch(script, output_file, comment, **kwargs):
         export = "ALL"
         if len(kwargs) > 0:
             for k, v in kwargs.items():
                 export += f",{k}={v}"
-        command = [SlurmManager.COMMAND_SBATCH, "--export", export, "--output", output_file, script]
+        comment = f"\"{comment}\""
+        command = [SlurmManager.COMMAND_SBATCH, "--export", export, "--output", output_file, "--comment", f"{comment}", script]
         format_command = ' '.join(command)
-        logging.getLogger().debug(f"Execute {format_command}")
+        logging.getLogger().debug(f"Execute `{format_command}`")
         job_id = subprocess.check_output(command).decode("utf-8").split()[-1]
-        logging.getLogger().debug(f"Got {job_id}")
+        logging.getLogger().debug(f"Got '{job_id}'")
         return job_id
 
     @staticmethod
@@ -61,12 +63,13 @@ class SlurmManager:
     @staticmethod
     def get_ip_literal(hostname):
         # TODO: IPv6 literals will be broken here
+        # Low priority as DNS should be used regardless of IPv6 or IPv4
         hostname = hostname.split(':')[0]
         return socket.gethostbyname(hostname)
     
     @staticmethod
-    def submit_job(script, output_file="slurm-%j.out", **kwargs):
-        return SlurmManager._slurm_sbatch(script, output_file, **kwargs)
+    def submit_job(script, output_file="slurm-%j.out", comment="kagemori", **kwargs):
+        return SlurmManager._slurm_sbatch(script, output_file, comment, **kwargs)
 
     @staticmethod
     def cancel_job(job_id):
