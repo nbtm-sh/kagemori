@@ -4,6 +4,7 @@ server:
 
 web:
   session_cookie_name: "kageauth"
+  portal_url: "portal.cluster.edu"
 
 branding:
   username_placeholder: "zID"
