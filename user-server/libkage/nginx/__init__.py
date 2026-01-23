@@ -1,5 +1,6 @@
 import libkage.dirs
 import libkage.secure
+import libkage.dns
 import subprocess, os, psutil, logging
 
 class NGINXConfig:
@@ -35,6 +36,7 @@ class NGINXInstance:
             self.dir_wrapper.format_path(nginx_pid_path),
             self.dir_wrapper.format_path(nginx_tmp_path)
         )
+        self.dns_servers = " ".join(libkage.dns.get_dns_servers())
 
     def _get_process_state(self):
         pass
@@ -86,7 +88,7 @@ class NGINXInstance:
             fp.write(f"\n")
             fp.write(f"    server {{\n")
             fp.write(f"        listen unix:{self.config.listen};\n")
-            fp.write(f"        resolver 129.94.0.196;\n")
+            fp.write(f"        resolver {self.dns_servers};\n")
             fp.write(f"        server_name _;\n")
             fp.write(f"\n")
             fp.write(f"        access_log {self.config.log_path}/access.log;\n")
