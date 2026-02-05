@@ -1,5 +1,6 @@
 import libkage.dirs
 import libkage.secure
+import libkage.dns
 import subprocess, os, psutil, logging
 import kagemori_nginx
 
@@ -35,6 +36,7 @@ class NGINXInstance:
             kagemori_socket_file = self.dir_wrapper.format_path(local_socket),
             listen_socket = self.dir_wrapper.format_path(nginx_listen)
         )
+        self.dns_servers = " ".join(libkage.dns.get_dns_servers())
 
     def _get_process_state(self):
         pass
