@@ -128,6 +128,10 @@ def main_load(reload_auth=True):
     apps = []
 
     for app_config in config["apps"]:
+        ssl = False
+        if "ssl" in app_config:
+            ssl = app_config["ssl"]
+
         append_app = libkage.app.App(
             path = app_config["project_root"],
             app_name = app_config["name"],
@@ -144,7 +148,9 @@ def main_load(reload_auth=True):
             job_start_poll_time = app_config["queue"]["starting_poll_interval"],
             job_running_poll_time = app_config["queue"]["running_poll_interval"],
             domain = app_config["domain"],
-            state_cache = sc
+            state_cache = sc,
+            nginx_server = ng,
+            enable_ssl = ssl
         )
         apps.append(append_app)
         logger.info(f"Registered app '{append_app.app_name}'!")
