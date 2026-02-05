@@ -72,6 +72,7 @@ class App:
         self.job_state = libkage.queue.state.JobState()
         self.job_configuration = None
         self.lock = False
+        self.nginx_server.remove_server(self.domain)
         if self.state_cache:
             self.state_cache.clear_config(self.app_name)
 
