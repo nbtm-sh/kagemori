@@ -7,7 +7,7 @@ class App:
     KEY_REQUEST_STATE = "request_state"
     JOB_CONFIG_EXPECTED_KEYS = ["job_id", "job_node", "job_url"]
 
-    def __init__(self, path, app_name, queue_manager, cert_manager, dir_wrapper, env_var_job_config_path=None, env_var_job_certificate_path=None, env_var_job_key_path=None, job_configuration=None, username=None, job_start_timeout=None, job_start_poll_time=None, job_running_poll_time=None, domain=None, env_var_job_domain_name=None, state_cache=None, resume=True):
+    def __init__(self, path, app_name, queue_manager, cert_manager, dir_wrapper, env_var_job_config_path=None, env_var_job_certificate_path=None, env_var_job_key_path=None, job_configuration=None, username=None, job_start_timeout=None, job_start_poll_time=None, job_running_poll_time=None, domain=None, env_var_job_domain_name=None, state_cache=None, resume=True, nginx_server=None, enable_ssl=False):
         self.path = path
         self.app_name = app_name
         self.queue_manager = queue_manager
@@ -24,6 +24,8 @@ class App:
         self.check_configuration_thread = None
         self.lock = False
         self.state_cache = state_cache
+        self.nginx_server = nginx_server
+        self.enable_ssl = enable_ssl
 
         # Environment variables
         self.env_var_job_config_path = env_var_job_config_path
@@ -70,6 +72,7 @@ class App:
         self.job_state = libkage.queue.state.JobState()
         self.job_configuration = None
         self.lock = False
+        self.nginx_server.remove_server(self.domain)
         if self.state_cache:
             self.state_cache.clear_config(self.app_name)
 
@@ -197,11 +200,18 @@ class App:
             # Create job directory and generate certificates
             if not self.job_state.job_tmp_directory:
                 self.job_state.job_tmp_directory = self.dir_wrapper.create_temporary_job_dir(self.job_state.job_uuid)
-            
+
+            # This is a bit of a hack -
+            # This will return only the certificate paths so that they can be passed to the job
+            # This will not actually generate certificates. This will happen once a node is assigned to the job
             if not self.job_state.job_certificate:
-                self.job_state.job_certificate = self.cert_manager.create_certificate(self.job_state.job_uuid)
+                self.job_state.job_certificate = self.cert_manager.create_dummy_certificate(self.job_state.job_uuid)
+            
             self.logger.debug(f"Job temp directory: {self.job_state.job_tmp_directory}")
             self.logger.debug(f"Job cert: {self.job_state.job_certificate}")
+
+            # Set up NGINX
+            self.nginx_server.add_server(self.domain, enable_ssl = self.enable_ssl, ssl_certificate_path = self.job_state.job_certificate.cert_out_path)
 
             # Configure environment variables
             start_script = os.path.join(self.path, App.START_SCRIPT)
@@ -233,6 +243,9 @@ class App:
                 self.update_job_state()
                 time.sleep(self.job_start_poll_time)
                 self.logger.debug(f"Update job state in await assignment loop")
+
+            # Generate real certificates
+            self.job_state.job_certificate = self.cert_manager.create_certificate(self.job_state.job_uuid, common_name="c03.discworld.analytical.unsw.edu.au")
 
             self.job_state.gui_state = "STARTED"
             self.logger.debug("Logic check await resource loop: " + str(bool(self.job_state.job_state) and (self.job_state.job_state != "RUNNING" and self.job_state.job_state != "FAILED")))

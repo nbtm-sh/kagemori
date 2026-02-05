@@ -3,3 +3,4 @@ psutil == 7.1.0
 six == 1.17.0
 pyyaml == 6.0.3
 python-pam == 2.0.2
+kagemori-nginx @ git+https://github.com/nbtm-sh/kagemori_nginx@0.1

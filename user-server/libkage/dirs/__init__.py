@@ -40,14 +40,16 @@ class DirWrapper:
         job_tempdir_path = self._get_temp_dir(job_uuid)
         shutil.rmtree(job_tempdir_path)
 
-    def create_dir_in_temp_dir(self, job_uuid, dir_name):
+    def create_dir_in_temp_dir(self, job_uuid, dir_name, dry=False):
         if not os.path.exists(self._get_temp_dir(job_uuid)):
             # Create the temporary path if not exists 
             self.create_temporary_job_dir(job_uuid)
 
         base_path = self._get_temp_dir(job_uuid)
         full_path = os.path.join(base_path, dir_name)
-        os.makedirs(full_path)
+        if not dry:
+            if not os.path.exists(full_path):
+                os.makedirs(full_path)
 
         return full_path
     
@@ -61,4 +63,3 @@ class DirWrapper:
         new_dir = os.path.join(tmp_prefix, path)
 
         os.makedirs(new_dir)
-    
